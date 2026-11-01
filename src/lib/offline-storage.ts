@@ -56,11 +56,18 @@ interface EposterDB extends DBSchema {
 const DB_NAME = "eposter-offline-v1";
 
 function inferMimeType(fileName: string): string {
-  const extension = fileName.split(".").pop()?.toLowerCase();
-  if (extension === "pdf") return "application/pdf";
-  if (extension === "png") return "image/png";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  return "application/octet-stream";
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  const mimeTypes: Record<string, string> = {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  };
+  return mimeTypes[extension] ?? "application/octet-stream";
 }
 
 function database() {
@@ -183,7 +190,9 @@ export async function syncQueuedSubmissions(): Promise<{
           id: submission.id,
           blob: item.file,
           fileName: item.file.name,
-          fileType: item.file.type || inferMimeType(item.file.name),
+          fileType: item.file.type && item.file.type !== "application/octet-stream"
+            ? item.file.type
+            : inferMimeType(item.file.name),
         });
       }
       await db.delete("pendingSubmissions", item.id);

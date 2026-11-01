@@ -26,11 +26,17 @@ import {
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-const ALLOWED_FILE_TYPES = [
+const ALLOWED_FILE_TYPES = new Set([
   "application/pdf",
   "image/png",
   "image/jpeg",
-];
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+const ALLOWED_EXTENSIONS = ["pdf", "png", "jpg", "jpeg", "ppt", "pptx", "doc", "docx"];
 
 const submissionSchema = z.object({
   authorName: z
@@ -101,7 +107,7 @@ type PosterSubmission = SubmissionFields & {
   fileName: string;
   fileType: string;
   fileSize: number;
-  fileUrl: string;
+  fileUrl?: string;
   createdAt: string;
   syncStatus?: "online" | "pending";
 };
@@ -190,17 +196,20 @@ export default function SubmitPage() {
       return false;
     }
 
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    const validExtension = ["pdf", "png", "jpg", "jpeg"].includes(
-      extension ?? "",
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const expectedType = inferSubmissionMimeType(file.name);
+    const validExtension = ALLOWED_EXTENSIONS.includes(extension);
+    // Use the extension as the source of truth because some browsers report an
+    // empty or generic MIME type for Office documents and JPEG files.
+    const validType = validExtension && (
+      !file.type ||
+      file.type === expectedType ||
+      file.type === "application/octet-stream" ||
+      (extension === "jpg" && file.type === "image/jpg")
     );
 
-    const validType =
-      ALLOWED_FILE_TYPES.includes(file.type) ||
-      (file.type === "" && validExtension);
-
-    if (!validType) {
-      setFileError("Upload a PDF, PNG, or JPG file.");
+    if (!validType || !ALLOWED_FILE_TYPES.has(expectedType)) {
+      setFileError("Supported formats: PDF, PNG, JPG/JPEG, PPT, PPTX, DOC, and DOCX.");
       return false;
     }
 
@@ -257,8 +266,6 @@ export default function SubmitPage() {
           fileName: selectedFile.name,
           fileType: selectedFile.type || "application/octet-stream",
           fileSize: selectedFile.size,
-          // Offline-only submissions do not have a cloud file URL until synced.
-          fileUrl: "",
           createdAt: queued.createdAt,
           syncStatus: "pending" as const,
         };
@@ -307,7 +314,9 @@ export default function SubmitPage() {
           fileName: onlineSubmission.fileName || selectedFile.name,
           fileType: onlineSubmission.fileType || mimeType,
           fileSize: onlineSubmission.fileSize ?? selectedFile.size,
-          fileUrl: onlineSubmission.fileUrl || `/api/submissions/${encodeURIComponent(onlineSubmission.id)}/file`,
+          fileUrl:
+            onlineSubmission.fileUrl ||
+            `/api/submissions/${encodeURIComponent(onlineSubmission.id)}/file`,
         }]);
       }
       setSavedSubmission(onlineSubmission);
@@ -651,7 +660,7 @@ export default function SubmitPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+                  accept=".pdf,.png,.jpg,.jpeg,.ppt,.pptx,.doc,.docx,application/pdf,image/png,image/jpeg,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   onChange={(event) =>
                     handleFileChange(event.target.files?.[0] ?? null)
                   }
@@ -712,7 +721,7 @@ export default function SubmitPage() {
                       Click to upload your poster
                     </span>
                     <span className="mt-2 text-xs leading-5 text-slate-500">
-                      PDF, PNG, or JPG · Maximum 20 MB
+                      PDF, PNG, JPG/JPEG, PPT, PPTX, DOC, or DOCX · Maximum 20 MB
                     </span>
                     <span className="mt-4 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white">
                       Browse files
@@ -728,7 +737,7 @@ export default function SubmitPage() {
 
                 <p className="mt-4 text-xs leading-6 text-slate-500">
                   Your selected file is uploaded securely with your submission. PDF, PNG,
-                  and JPG files up to 20 MB are supported.
+                  JPG/JPEG, PowerPoint, and Word files up to 20 MB are supported.
                 </p>
               </div>
             </section>
@@ -811,12 +820,20 @@ export default function SubmitPage() {
   );
 }
 
+const FILE_MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+};
+
 function inferSubmissionMimeType(fileName: string): string {
-  const extension = fileName.split(".").pop()?.toLowerCase();
-  if (extension === "pdf") return "application/pdf";
-  if (extension === "png") return "image/png";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  return "application/octet-stream";
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return FILE_MIME_TYPES[extension] ?? "application/octet-stream";
 }
 
 function inputClass(hasError: boolean) {
